@@ -1,3 +1,3 @@
 module github.com/maxid/gcache
 
-go 1.24
+go 1.27
