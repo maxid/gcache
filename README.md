@@ -1,6 +1,6 @@
 # gcache
 
-Two-level cache (local + Redis) and distributed lock toolkit in Go, equivalent in intent to the distributed cache used by XDMP.
+Two-level cache (local + Redis) and distributed lock toolkit in Go.
 
 > Status: **experimental scaffold** (v0.0.0-dev).
 
@@ -9,7 +9,7 @@ Two-level cache (local + Redis) and distributed lock toolkit in Go, equivalent i
 - Local cache layer (LRU/TTL)
 - Redis second-level cache
 - Cross-node invalidation (pub/sub)
-- Distributed locks (reentrant helpers)
+- Distributed locks
 - Cache statistics and health checks
 
 ## Install
