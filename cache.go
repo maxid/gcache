@@ -260,6 +260,29 @@ func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Dura
 	return c.invalidate(ctx, name, 0)
 }
 
+// SetPersistent stores a value without an expiry. It is intended for small
+// definitions that must survive a restart (for example namespace definitions),
+// not for ordinary cached data. The memory and Redis remote stores honor a zero
+// TTL as "no expiry"; a remote that cannot (olric) may apply its own default.
+func (c *Cache) SetPersistent(ctx context.Context, key string, value []byte) error {
+	if c.closed.Load() {
+		return ErrClosed
+	}
+	if int64(len(value)) > c.cfg.RemoteMaxValueBytes {
+		return fmt.Errorf("%w: %d bytes exceed %d", ErrTooLarge, len(value), c.cfg.RemoteMaxValueBytes)
+	}
+
+	name := c.key(key)
+	if c.remote != nil {
+		if err := c.remote.Set(ctx, name, value, 0); err != nil {
+			return err
+		}
+	}
+	c.local.set(name, value, time.Time{}, 0)
+	c.negative.remove(name)
+	return c.invalidate(ctx, name, 0)
+}
+
 // Delete removes from L2, then L1, then broadcasts.
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	if c.closed.Load() {

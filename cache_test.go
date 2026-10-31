@@ -282,3 +282,18 @@ func (f failingInvalidator) Subscribe(ctx context.Context, handler func(gcache.I
 }
 
 func (f failingInvalidator) Close() error { return nil }
+
+func TestSetPersistentDoesNotUseTheDefaultTTL(t *testing.T) {
+	cache := newCache(t)
+	ctx := context.Background()
+	if err := cache.SetPersistent(ctx, "p", []byte("v")); err != nil {
+		t.Fatalf("set persistent: %v", err)
+	}
+	entry, ok, err := cache.Get(ctx, "p")
+	if err != nil || !ok || string(entry.Value) != "v" {
+		t.Fatalf("get = %+v, %v, %v", entry, ok, err)
+	}
+	if !entry.ExpiresAt.IsZero() {
+		t.Fatalf("persistent entry expires at %v", entry.ExpiresAt)
+	}
+}
