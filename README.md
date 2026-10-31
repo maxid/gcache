@@ -1,3 +1,5 @@
+English | [简体中文](README.zh-CN.md)
+
 # gcache
 
 Two-level cache (local + Redis) and distributed lock toolkit in Go.
