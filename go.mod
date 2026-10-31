@@ -3,8 +3,14 @@ module github.com/maxid/gcache
 go 1.27
 
 require (
+	github.com/alicebob/miniredis/v2 v2.40.0
+	github.com/maxid/gns v0.0.0-20261031165430-2a21baf0a62f
+	github.com/olric-data/olric v0.7.4
+	github.com/redis/go-redis/v9 v9.23.0
+)
+
+require (
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
-	github.com/alicebob/miniredis/v2 v2.40.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.22.0 // indirect
 	github.com/buraksezer/consistent v0.10.0 // indirect
@@ -21,9 +27,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.3 // indirect
 	github.com/miekg/dns v1.1.65 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
-	github.com/olric-data/olric v0.7.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/redis/go-redis/v9 v9.23.0 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/maxid/gns"
 )
 
 // Entry is one cached value. Value is a read-only byte view; callers get their own
@@ -397,7 +399,7 @@ func (c *Cache) Namespace() string { return c.cfg.Namespace }
 
 // key applies the namespace prefix. Business isolation dimensions (tenant, device)
 // belong in the key built by the caller.
-func (c *Cache) key(key string) string { return c.cfg.Namespace + ":" + key }
+func (c *Cache) key(key string) string { return gns.Join(":", c.cfg.Namespace, key) }
 
 func (c *Cache) effectiveTTL(ttl time.Duration) time.Duration {
 	if ttl <= 0 {
