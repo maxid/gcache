@@ -31,9 +31,25 @@ miss. Using an embedded cluster instead of Redis only swaps the L2 port.
 | Invalidation port + `InvalidationError` (applied but not propagated) | done |
 | `Lock`/`Locker`/`WaitPolicy` ports | done |
 | `memory/` store and bus (tests, single process) | done |
-| Redis `RemoteStore`/`Invalidator`/`Locker` | planned |
+| Redis `RemoteStore`/`Invalidator` | done (miniredis tests) |
+| Redis `Locker`: script path + native `DELEX`/`SET IFEQ` path | done |
 | Olric `RemoteStore`/`Invalidator` | planned |
 | Periodic expiry sweep, health checks | planned |
+
+### Locking without Lua
+
+`SET key token NX PX ttl` is atomic in every Redis version, so acquire never needed
+scripting. Release and renew must *compare the token first*:
+
+| Redis | release | renew |
+|---|---|---|
+| < 8.4 | `EVAL if get==token then del` | `EVAL if get==token then pexpire` |
+| **8.4+** | `DELEX key IFEQ <token>` | `SET key token IFEQ <token> PX <ttl>` |
+
+`Locker` probes `COMMAND INFO delex` once and picks a path, so one binary works on
+both. Note that Redis 7's *Functions* (`FUNCTION LOAD`) are still Lua — they only
+change how the script is managed, not whether Lua runs. Valkey's `DELIFEQ` and
+Tair's `CAS`/`CAD` are not `DELEX`, so they stay on the script path.
 
 Rules the implementation keeps:
 
