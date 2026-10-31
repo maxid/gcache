@@ -63,3 +63,11 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 
 // Close implements gcache.RemoteStore.
 func (s *Store) Close() error { return s.client.Close() }
+
+// Ping implements gcache.HealthChecker.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("%w: %v", gcache.ErrUnavailable, err)
+	}
+	return nil
+}

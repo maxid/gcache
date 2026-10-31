@@ -34,7 +34,12 @@ miss. Using an embedded cluster instead of Redis only swaps the L2 port.
 | Redis `RemoteStore`/`Invalidator` | done (miniredis tests) |
 | Redis `Locker`: script path + native `DELEX`/`SET IFEQ` path | done |
 | Olric `RemoteStore` (embedded cluster as the L2) | done (port tested; real node pending) |
-| Periodic expiry sweep, health checks | planned |
+| Negative caching: local absence markers, cleared by every write | done |
+| Loader timeout per load (`LoaderTimeout`) | done |
+| Background expiry sweep (`SweepInterval`) | done |
+| `stale-if-error` with a bounded window, served entries marked `Stale` | done |
+| Health check (`Health`, store `Ping`) | done |
+
 
 ### Locking without Lua
 

@@ -81,6 +81,15 @@ type Config struct {
 	// InvalidationBuffer bounds the subscriber queue; a slow subscriber drains
 	// the local tier rather than growing without limit.
 	InvalidationBuffer int
+
+	// SweepInterval is how often expired entries are reclaimed in the background.
+	// The zero value means DefaultSweepInterval; a negative value disables it.
+	SweepInterval time.Duration
+
+	// StaleIfError serves an expired local entry when the shared store fails, up
+	// to this window past its expiry. Zero disables it. It is a deliberate
+	// availability-over-freshness trade, so a served stale entry is marked.
+	StaleIfError time.Duration
 }
 
 // Defaults are the values Normalize applies.
@@ -136,6 +145,15 @@ func (c *Config) Normalize() error {
 	}
 	if c.NegativeTTL > c.MaxTTL {
 		return fmt.Errorf("%w: negative TTL %s exceeds max TTL %s", ErrInvalidConfig, c.NegativeTTL, c.MaxTTL)
+	}
+	if c.SweepInterval > 0 && c.SweepInterval < 100*time.Millisecond {
+		return fmt.Errorf("%w: sweep interval %s is too small", ErrInvalidConfig, c.SweepInterval)
+	}
+	if c.StaleIfError < 0 {
+		return fmt.Errorf("%w: stale-if-error window must not be negative", ErrInvalidConfig)
+	}
+	if c.StaleIfError > c.MaxTTL {
+		return fmt.Errorf("%w: stale-if-error window %s exceeds max TTL %s", ErrInvalidConfig, c.StaleIfError, c.MaxTTL)
 	}
 	return nil
 }

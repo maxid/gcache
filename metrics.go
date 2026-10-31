@@ -10,6 +10,7 @@ type LocalStats struct {
 	Misses      int64
 	Evictions   int64
 	Expirations int64
+	Stale       int64
 }
 
 // Metrics is a snapshot of every counter. Labels are deliberately absent: the
@@ -26,6 +27,9 @@ type Metrics struct {
 	InvalidationsPublished int64
 	InvalidationsReceived  int64
 	InvalidationErrors     int64
+	StaleServed            int64
+	HealthFailures         int64
+	NegativeHits           int64
 }
 
 type counters struct {
@@ -40,6 +44,9 @@ type counters struct {
 	invalidationsPublished atomic.Int64
 	invalidationsReceived  atomic.Int64
 	invalidationErrors     atomic.Int64
+	staleServed            atomic.Int64
+	healthFailures         atomic.Int64
+	negativeHits           atomic.Int64
 }
 
 func (c *counters) snapshot() Metrics {
@@ -55,5 +62,8 @@ func (c *counters) snapshot() Metrics {
 		InvalidationsPublished: c.invalidationsPublished.Load(),
 		InvalidationsReceived:  c.invalidationsReceived.Load(),
 		InvalidationErrors:     c.invalidationErrors.Load(),
+		StaleServed:            c.staleServed.Load(),
+		HealthFailures:         c.healthFailures.Load(),
+		NegativeHits:           c.negativeHits.Load(),
 	}
 }
