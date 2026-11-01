@@ -2,10 +2,10 @@
 // a pluggable shared store (L2), with a pluggable invalidation channel and a
 // distributed lock port.
 //
-// The shape mirrors the platform's Java cache (Caffeine L1 + Redis L2 + broadcast
-// invalidation), because a Go process and a Java process commonly run side by side
-// against the same Redis. It is a neutral library: key naming, tenant scoping and
-// what may be cached stay with the consumer.
+// The shape is the conventional two-level cache (local L1 + Redis L2 + broadcast
+// invalidation), because another process commonly runs side by side against the
+// same Redis. It is a neutral library: key naming, tenant scoping and what may be
+// cached stay with the consumer.
 //
 // It does not promise cross-node linearizability, cache/DB transactions, or
 // absolute mutual exclusion after a lock expires.

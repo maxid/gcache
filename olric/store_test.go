@@ -123,6 +123,17 @@ func TestNewStoreValidates(t *testing.T) {
 	}
 }
 
+// Enumeration is deliberately not implemented here: a DMap walk visits every
+// partition and filters each key with a regexp, so it is not a cheap prefix
+// lookup (see the package documentation). A consumer that needs the capability
+// asks for it and must handle this store's answer.
+func TestStoreDoesNotEnumerate(t *testing.T) {
+	store, _ := golric.NewStore(newFake())
+	if _, ok := any(store).(gcache.Scanner); ok {
+		t.Fatal("the Olric store claimed a Scanner capability it does not have")
+	}
+}
+
 // The cache works over the Olric port exactly as it does over Redis.
 func TestCacheOverOlric(t *testing.T) {
 	store, _ := golric.NewStore(newFake())

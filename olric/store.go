@@ -10,6 +10,14 @@
 //     cache free of Olric types and makes the adapter testable;
 //   - FromDMap, the thin bridge to olric.DMap, the only place that knows Olric's
 //     response and option types.
+//
+// The store is key-addressed only: it deliberately does NOT implement
+// gcache.Scanner. Olric can walk a DMap, but that walk visits every partition of
+// the cluster and filters each key with a regular expression — there is no prefix
+// index — so it is not a cheap prefix lookup, and the DMap port above stays the
+// four methods a shared tier actually needs. A consumer that must enumerate keys
+// needs a store that can do it cheaply; the Redis store implements
+// gcache.Scanner with SCAN.
 package olric
 
 import (

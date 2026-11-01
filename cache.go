@@ -25,7 +25,10 @@ type Entry struct {
 type Loader func(ctx context.Context) (value []byte, ttl time.Duration, err error)
 
 // RemoteStore is the shared tier (L2). Implementations live in subpackages
-// (redis, olric, memory) so the core stays dependency-free.
+// (redis, olric, memory) so the core stays dependency-free. Enumeration is not
+// part of this contract: the cache only addresses keys it is given, so a store
+// that can also list keys by prefix implements the optional Scanner interface and
+// a store that cannot is still complete.
 //
 // Version semantics: a store that can produce monotonic versions should do so;
 // the cache only writes a local entry whose version is not older than what it

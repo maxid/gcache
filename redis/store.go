@@ -1,7 +1,7 @@
 // Package redis implements gcache's ports on Redis.
 //
-// A Go process and a Java process commonly share one Redis (the platform's Java
-// cache is Caffeine L1 + Redisson L2 + RTopic invalidation), so the key layout and
+// Several processes commonly share one Redis (a two-level cache elsewhere in the
+// deployment is local L1 + Redis L2 + pub/sub invalidation), so the key layout and
 // the lock scripts here are deliberately the conventional ones: the point is to be
 // interchangeable, not inventive.
 package redis
