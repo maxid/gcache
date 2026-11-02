@@ -8,3 +8,11 @@
 
 # Go build/test cache used in sandboxed environments
 .gocache/
+
+# build outputs — nothing compiled belongs in the repository (AGENTS.md §6)
+*.exe
+*.so
+*.dylib
+*.a
+*.prof
+coverage.*
