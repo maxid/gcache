@@ -15,7 +15,7 @@ L1   本地 LRU + TTL，按条目数与字节数设上限          （进程内�
 L2   RemoteStore 端口                                （redis/、olric/、memory/）
      └─ 与部署中其他进程共用的一个 Redis，或内嵌的 Olric 集群
 INV  Invalidator 端口                                （Redis pub/sub、进程内总线）
-LOCK Locker 端口                                     （Redis：SET NX PX + 比对 token）
+LOCK Locker 端口                                     （Redis：SET NX PX + 比对 token；Olric：DMap 锁）
 SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH <prefix>* COUNT；Olric：分页 DMap 遍历）
 ```
 
@@ -35,7 +35,7 @@ SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH
 | 后台过期清扫（`SweepInterval`） | 完成 |
 | `stale-if-error`（有界窗口，返回条目标记 `Stale`） | 完成 |
 | 失效端口 + `InvalidationError`（已生效但未传播） | 完成 |
-| `Lock`/`Locker`/`WaitPolicy` 端口 | 完成 |
+| `Lock`/`Locker`/`WaitPolicy` 端口 | Redis 与 Olric 都完成 |
 | `memory/` 存储与总线（测试、单进程） | 完成 |
 | Redis `RemoteStore`/`Invalidator` | 完成（miniredis 测试） |
 | Redis `Locker`：脚本路径 + 原生 `DELEX`/`SET IFEQ` 路径 | 完成；脚本路径有测试，8.4+ 原生路径已实现但测试套件未覆盖（miniredis 没有 `DELEX`） |
@@ -53,7 +53,7 @@ SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH
   channel）。
 - **Redis 8.4+ 锁路径。** 已实现，通过探测 `COMMAND INFO delex` 选择，但没有针对具备
   `DELEX` 的服务器的测试。
-- **Olric 只是存储。** Olric 层没有 `Invalidator`、`Locker`，也没有 `Ping`。
+- **Olric 是存储与锁。** Olric 层没有 `Invalidator`，也没有 `Ping`。
 - **基准测试与 v1.0 API 稳定化**仍未完成，见 [ROADMAP.zh-CN.md](ROADMAP.zh-CN.md)。
 
 ## 扫描共享层
@@ -84,6 +84,22 @@ if !ok {
 代价比 Redis 高，值得知道：Olric 没有前缀索引，遍历要走遍集群每个分区并用正则过滤每个 key。
 这属于启动或运维操作——正是"载入上一个进程写下的状态"需要的——不该出现在请求路径上。见
 [scanner.go](scanner.go)。
+
+## Olric 上的锁
+
+`olric.NewLocker` 把同一个 `Locker` 端口实现在 DMap 上。原语就是 Olric 自己的锁：
+`PUT key token NX PX ttl` 获取，释放与续期都先比对存下的值与持有者的 token
+（`ErrNoSuchLock` 映射成 `gcache.ErrLockLost`）。它没有 quorum——这是分区属主上的单键锁，
+与单实例 Redis 锁同一种构造，不是跨独立主节点的 Redlock——所以需要抵挡节点丢失的资源仍要校验
+fencing token，它来自另一个键上的原子 `Incr`，与 Redis 侧完全一致。
+
+```go
+locker, err := olric.NewLocker(olric.FromLockingDMap(dmap), "gcache:fencing")
+lock, ok, err := locker.TryAcquire(ctx, "job:42", 30*time.Second)
+```
+
+`Lock.Token` 是本地值：Olric 把属主 token 留在服务端且不暴露，因此 `Token()` 用于日志与测试里
+识别持有者，真正的归属由存下的值保证。
 
 ## 不用 Lua 的加锁
 

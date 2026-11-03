@@ -197,3 +197,74 @@ func TestCacheOverEmbeddedOlric(t *testing.T) {
 		t.Fatalf("health: %v", err)
 	}
 }
+
+// The lock against a real node, through two clients of the same cluster: exclusion
+// has to hold across processes, and a handle whose lease elapsed must report a lost
+// lock instead of releasing the new holder's key.
+func TestLockerAgainstEmbeddedOlric(t *testing.T) {
+	db, first := startOlric(t)
+	second := db.NewEmbeddedClient()
+
+	dmaps := make([]olric.DMap, 0, 2)
+	for _, client := range []*olric.EmbeddedClient{first, second} {
+		dm, err := client.NewDMap("gcache-lock")
+		if err != nil {
+			t.Fatalf("dmap: %v", err)
+		}
+		dmaps = append(dmaps, dm)
+	}
+
+	lockers := make([]*golric.Locker, 0, 2)
+	for _, dm := range dmaps {
+		locker, err := golric.NewLocker(golric.FromLockingDMap(dm), "gcache:test-fencing")
+		if err != nil {
+			t.Fatalf("locker: %v", err)
+		}
+		lockers = append(lockers, locker)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	held, ok, err := lockers[0].TryAcquire(ctx, "job:1", 5*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("acquire on the first client = %v, %v", ok, err)
+	}
+	if _, ok, err := lockers[1].TryAcquire(ctx, "job:1", 5*time.Second); ok || err != nil {
+		t.Fatalf("acquire on the second client = %v, %v, want a refusal", ok, err)
+	}
+	if err := held.Unlock(ctx); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	next, ok, err := lockers[1].TryAcquire(ctx, "job:1", 5*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("acquire after release = %v, %v", ok, err)
+	}
+	if next.FencingToken() <= held.FencingToken() {
+		t.Fatalf("fencing %d after %d, want strictly increasing", next.FencingToken(), held.FencingToken())
+	}
+	if err := next.Unlock(ctx); err != nil {
+		t.Fatalf("unlock second: %v", err)
+	}
+
+	// A lease that elapses: the key goes away with its TTL, another client takes it,
+	// and the old handle must not be able to renew or release it.
+	expiring, ok, err := lockers[0].TryAcquire(ctx, "job:2", 150*time.Millisecond)
+	if err != nil || !ok {
+		t.Fatalf("acquire expiring = %v, %v", ok, err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	taken, ok, err := lockers[1].TryAcquire(ctx, "job:2", 5*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("acquire after the lease elapsed = %v, %v", ok, err)
+	}
+	if err := expiring.Renew(ctx, time.Minute); !errors.Is(err, gcache.ErrLockLost) {
+		t.Fatalf("renew of an expired lock = %v, want ErrLockLost", err)
+	}
+	if err := expiring.Unlock(ctx); !errors.Is(err, gcache.ErrLockLost) {
+		t.Fatalf("unlock of an expired lock = %v, want ErrLockLost", err)
+	}
+	if err := taken.Unlock(ctx); err != nil {
+		t.Fatalf("unlock the new holder: %v", err)
+	}
+}

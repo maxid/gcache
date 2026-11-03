@@ -15,7 +15,7 @@ L1   local LRU + TTL, bounded by entries and bytes   (in-process, always on)
 L2   RemoteStore port                                (redis/, olric/, memory/)
      └─ one Redis shared with the rest of the deployment, or an embedded Olric cluster
 INV  Invalidator port                                (redis pub/sub, in-process bus)
-LOCK Locker port                                     (redis: SET NX PX + compare-the-token)
+LOCK Locker port                                     (redis: SET NX PX + compare-the-token; olric: DMap lock)
 SCAN Scanner port (optional)                         (redis: SCAN MATCH <prefix>* COUNT; olric: paged DMap walk)
 ```
 
@@ -36,7 +36,7 @@ sharing the same Redis should find nothing surprising, not a private scheme.
 | Background expiry sweep (`SweepInterval`) | done |
 | `stale-if-error` with a bounded window, served entries marked `Stale` | done |
 | Invalidation port + `InvalidationError` (applied but not propagated) | done |
-| `Lock`/`Locker`/`WaitPolicy` ports | done |
+| `Lock`/`Locker`/`WaitPolicy` ports | done on Redis and Olric |
 | `memory/` store and bus (tests, single process) | done |
 | Redis `RemoteStore`/`Invalidator` | done (miniredis tests) |
 | Redis `Locker`: script path, native `DELEX`/`SET IFEQ` path | done; the script path is tested, the 8.4+ native path is implemented but not exercised by the suite (miniredis has no `DELEX`) |
@@ -56,7 +56,7 @@ sharing the same Redis should find nothing surprising, not a private scheme.
   client's channel).
 - **Redis 8.4+ lock path.** Implemented and selected by probing `COMMAND INFO
   delex`, but no test runs against a server that has `DELEX`.
-- **Olric is a store only.** No `Invalidator`, no `Locker`, no `Ping` for the
+- **Olric is a store and a lock.** No `Invalidator`, no `Ping` for the
   Olric-backed tier.
 - **Benchmarks and v1.0 API stabilization** are still open; see [ROADMAP.md](ROADMAP.md).
 
@@ -92,6 +92,26 @@ prefix index, so a walk visits every partition of the cluster and filters each k
 with a regular expression. That is a start-up or operator operation — exactly what a
 consumer loading the previous process's state needs — not something to run per
 request. See [scanner.go](scanner.go).
+
+## Locking over Olric
+
+`olric.NewLocker` takes the same `Locker` port over a DMap. The primitive is
+Olric's own lock: `PUT key token NX PX ttl` to acquire, and release/renew that
+compare the stored value with the holder's token before touching it
+(`ErrNoSuchLock` becomes `gcache.ErrLockLost`). There is no quorum — this is a
+single-key lock on the partition owner, the same construction as a single-Redis
+lock, not Redlock across independent masters — so a resource that must survive a
+lost node still checks the fencing token, which comes from an atomic `Incr` on a
+separate key, exactly as on Redis.
+
+```go
+locker, err := olric.NewLocker(olric.FromLockingDMap(dmap), "gcache:fencing")
+lock, ok, err := locker.TryAcquire(ctx, "job:42", 30*time.Second)
+```
+
+`Lock.Token` is local: Olric keeps the owner token server-side and does not expose
+it, so `Token()` identifies the holder in logs and tests while ownership itself is
+enforced by the stored value.
 
 ## Locking without Lua
 

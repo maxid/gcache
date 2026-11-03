@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- `olric.NewLocker`: the `Locker` port over a DMap, on Olric's own lock
+  (`PUT key token NX PX ttl`, release and renew compare the stored token) with
+  fencing tokens minted by an atomic `Incr`. `olric.LockingDMap` is an optional
+  interface extending `DMap`, so a DMap without locking still backs the store.
+  No quorum: a single-key lock on the partition owner, not Redlock across
+  independent masters.
 - `Scanner`, an optional key-enumeration port (`Scan(ctx, prefix, fn)`), with both
   shipped implementations: `SCAN` + `MATCH <prefix>*` + `COUNT` on Redis, and a
   paged DMap walk (`Match` + `Count`, 512 keys per round trip) on Olric. The
