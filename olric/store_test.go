@@ -3,6 +3,9 @@ package olric_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,11 +16,12 @@ import (
 // fakeDMap records what the store asks for; the real Olric node is a deployment
 // concern, the port contract is what this covers.
 type fakeDMap struct {
-	values map[string][]byte
-	ttls   map[string]time.Duration
-	getErr error
-	putErr error
-	delErr error
+	values  map[string][]byte
+	ttls    map[string]time.Duration
+	getErr  error
+	putErr  error
+	delErr  error
+	scanErr error
 }
 
 func newFake() *fakeDMap {
@@ -46,6 +50,28 @@ func (f *fakeDMap) Delete(_ context.Context, key string) error {
 		return f.delErr
 	}
 	delete(f.values, key)
+	return nil
+}
+
+// Scan walks the fake in key order so a test can compare the result; the real port
+// promises no order. It mirrors the port's error contract: a store failure wraps
+// gcache.ErrUnavailable, a callback error comes back unchanged.
+func (f *fakeDMap) Scan(_ context.Context, prefix string, fn func(key string) error) error {
+	if f.scanErr != nil {
+		return fmt.Errorf("%w: %v", gcache.ErrUnavailable, f.scanErr)
+	}
+	keys := make([]string, 0, len(f.values))
+	for key := range f.values {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if err := fn(key); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -123,14 +149,71 @@ func TestNewStoreValidates(t *testing.T) {
 	}
 }
 
-// Enumeration is deliberately not implemented here: a DMap walk visits every
-// partition and filters each key with a regexp, so it is not a cheap prefix
-// lookup (see the package documentation). A consumer that needs the capability
-// asks for it and must handle this store's answer.
-func TestStoreDoesNotEnumerate(t *testing.T) {
-	store, _ := golric.NewStore(newFake())
-	if _, ok := any(store).(gcache.Scanner); ok {
-		t.Fatal("the Olric store claimed a Scanner capability it does not have")
+// The Olric store claims the Scanner capability: a consumer that enumerates its
+// keys at start-up (gmqx loading the previous process's sessions and retained
+// messages) asserts for it and must find it.
+func TestStoreEnumerates(t *testing.T) {
+	dmap := newFake()
+	store, _ := golric.NewStore(dmap)
+	scanner, ok := any(store).(gcache.Scanner)
+	if !ok {
+		t.Fatal("the Olric store does not implement gcache.Scanner")
+	}
+
+	ctx := context.Background()
+	for _, key := range []string{"sess:a", "sess:b", "retain:c", "ses"} {
+		if err := dmap.Put(ctx, key, []byte("v"), time.Minute); err != nil {
+			t.Fatalf("put %s: %v", key, err)
+		}
+	}
+
+	var got []string
+	if err := scanner.Scan(ctx, "sess:", func(key string) error {
+		got = append(got, key)
+		return nil
+	}); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if want := []string{"sess:a", "sess:b"}; !slices.Equal(got, want) {
+		t.Fatalf("scan = %v, want %v", got, want)
+	}
+}
+
+// The two failure paths Scanner's contract keeps apart: a callback error stops the
+// walk and reaches the caller unchanged, while a broken store is ErrUnavailable and
+// never looks like "nothing matched".
+func TestStoreScanErrors(t *testing.T) {
+	ctx := context.Background()
+	dmap := newFake()
+	store, _ := golric.NewStore(dmap)
+	for _, key := range []string{"k1", "k2", "k3"} {
+		if err := dmap.Put(ctx, key, []byte("v"), time.Minute); err != nil {
+			t.Fatalf("put %s: %v", key, err)
+		}
+	}
+
+	stop := errors.New("enough")
+	seen := 0
+	err := store.Scan(ctx, "k", func(string) error {
+		seen++
+		return stop
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("callback error = %v, want the caller's sentinel unchanged", err)
+	}
+	if seen != 1 {
+		t.Fatalf("callback ran %d times, want 1: the walk must stop", seen)
+	}
+
+	broken := newFake()
+	broken.scanErr = errors.New("cluster unreachable")
+	store, _ = golric.NewStore(broken)
+	if err := store.Scan(ctx, "k", func(string) error { return nil }); !errors.Is(err, gcache.ErrUnavailable) {
+		t.Fatalf("scan err = %v, want ErrUnavailable", err)
+	}
+
+	if err := store.Scan(ctx, "k", nil); !errors.Is(err, gcache.ErrInvalidConfig) {
+		t.Fatalf("nil callback err = %v, want ErrInvalidConfig", err)
 	}
 }
 

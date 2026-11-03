@@ -4,7 +4,9 @@ package olric_test
 
 import (
 	"context"
+	"errors"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -100,6 +102,58 @@ func TestStoreAgainstEmbeddedOlric(t *testing.T) {
 	}
 	if _, ok, _ := store.Get(ctx, "k"); ok {
 		t.Fatal("entry survived delete")
+	}
+}
+
+// Scan against a real node: four keys, two of them under the prefix. The other two
+// are the two ways the pattern can over-match, because Olric applies Match as an
+// unanchored regular expression — "sessa:3" matches a pattern whose dot is not
+// quoted, "xsess.a:4" matches one that is not anchored at the start.
+func TestScanAgainstEmbeddedOlric(t *testing.T) {
+	_, client := startOlric(t)
+
+	dmap, err := client.NewDMap("gcache-scan")
+	if err != nil {
+		t.Fatalf("dmap: %v", err)
+	}
+	store, err := golric.NewStore(golric.FromDMap(dmap))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	for _, key := range []string{"sess.a:1", "sess.a:2", "sessa:3", "xsess.a:4"} {
+		if err := store.Set(ctx, key, []byte("v"), time.Minute); err != nil {
+			t.Fatalf("set %s: %v", key, err)
+		}
+	}
+
+	var got []string
+	if err := store.Scan(ctx, "sess.a:", func(key string) error {
+		got = append(got, key)
+		return nil
+	}); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	slices.Sort(got)
+	if want := []string{"sess.a:1", "sess.a:2"}; !slices.Equal(got, want) {
+		t.Fatalf("scan = %v, want %v", got, want)
+	}
+
+	// A prefix nothing matches is an empty walk, not an error: the caller must be
+	// able to tell "nothing stored" from "the store is down".
+	if err := store.Scan(ctx, "absent:", func(key string) error {
+		t.Fatalf("unexpected key %q", key)
+		return nil
+	}); err != nil {
+		t.Fatalf("empty scan: %v", err)
+	}
+
+	stop := errors.New("stop")
+	if err := store.Scan(ctx, "sess.a:", func(string) error { return stop }); !errors.Is(err, stop) {
+		t.Fatalf("scan err = %v, want the callback's error unchanged", err)
 	}
 }
 

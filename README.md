@@ -16,7 +16,7 @@ L2   RemoteStore port                                (redis/, olric/, memory/)
      └─ one Redis shared with the rest of the deployment, or an embedded Olric cluster
 INV  Invalidator port                                (redis pub/sub, in-process bus)
 LOCK Locker port                                     (redis: SET NX PX + compare-the-token)
-SCAN Scanner port (optional)                         (redis: SCAN MATCH <prefix>* COUNT)
+SCAN Scanner port (optional)                         (redis: SCAN MATCH <prefix>* COUNT; olric: paged DMap walk)
 ```
 
 Both levels are active at once: L1 answers locally, L2 is the source of truth for
@@ -41,7 +41,7 @@ sharing the same Redis should find nothing surprising, not a private scheme.
 | Redis `RemoteStore`/`Invalidator` | done (miniredis tests) |
 | Redis `Locker`: script path, native `DELEX`/`SET IFEQ` path | done; the script path is tested, the 8.4+ native path is implemented but not exercised by the suite (miniredis has no `DELEX`) |
 | Olric `RemoteStore` (embedded cluster as the L2) | done, verified against a real node (`-tags=integration`) |
-| Optional key enumeration (`Scanner`) | done on Redis; deliberately absent on Olric (see below) |
+| Optional key enumeration (`Scanner`) | done on Redis and on Olric (a paged DMap walk, see below) |
 | Health check (`Health`, store `Ping`) | Redis store only; `memory` and `olric` do not implement `Ping`, so `Health` is a no-op for them |
 | Metrics counters | done except `Metrics.LoadWaiters`, which is declared but never incremented |
 
@@ -56,8 +56,8 @@ sharing the same Redis should find nothing surprising, not a private scheme.
   client's channel).
 - **Redis 8.4+ lock path.** Implemented and selected by probing `COMMAND INFO
   delex`, but no test runs against a server that has `DELEX`.
-- **Olric is a store only.** No `Invalidator`, no `Locker`, no `Scanner`, no
-  `Ping` for the Olric-backed tier.
+- **Olric is a store only.** No `Invalidator`, no `Locker`, no `Ping` for the
+  Olric-backed tier.
 - **Benchmarks and v1.0 API stabilization** are still open; see [ROADMAP.md](ROADMAP.md).
 
 ## Scanning the shared tier
@@ -84,10 +84,14 @@ if !ok {
 `redis.Store` implements it with `SCAN` + `MATCH <prefix>*` + `COUNT` (512 keys
 per round trip). The callback is called once per matching key in an unspecified
 order; its error stops the scan and is returned unchanged; a Redis failure is
-reported as `ErrUnavailable`, never as an empty key list. `olric.Store`
-deliberately does not implement it: an Olric walk visits every partition and
-matches each key with a regular expression, so it is not a cheap prefix lookup,
-and faking one would hide that cost. See [scanner.go](scanner.go).
+reported as `ErrUnavailable`, never as an empty key list.
+
+`olric.Store` implements it too, with a paged DMap walk (`Count` bounds one page at
+512 keys as well). The price is higher than Redis's and worth knowing: Olric has no
+prefix index, so a walk visits every partition of the cluster and filters each key
+with a regular expression. That is a start-up or operator operation — exactly what a
+consumer loading the previous process's state needs — not something to run per
+request. See [scanner.go](scanner.go).
 
 ## Locking without Lua
 

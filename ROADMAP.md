@@ -4,6 +4,6 @@
 - [x] Redis layer (`RemoteStore`, `Invalidator`, `Locker`)
 - [x] Invalidation broadcast (Redis pub/sub and the in-process bus)
 - [x] Distributed lock (`Locker`/`Lock`, compare-the-token release and renew)
-- [x] Prefix scan port (`Scanner`) with a Redis implementation
+- [x] Prefix scan port (`Scanner`) with Redis and Olric implementations
 - [ ] Benchmarks
 - [ ] v1.0 API stabilization

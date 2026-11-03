@@ -16,7 +16,7 @@ L2   RemoteStore 端口                                （redis/、olric/、memo
      └─ 与部署中其他进程共用的一个 Redis，或内嵌的 Olric 集群
 INV  Invalidator 端口                                （Redis pub/sub、进程内总线）
 LOCK Locker 端口                                     （Redis：SET NX PX + 比对 token）
-SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH <prefix>* COUNT）
+SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH <prefix>* COUNT；Olric：分页 DMap 遍历）
 ```
 
 两层同时生效：L1 在本地作答，未命中时 L2 是事实来源。把 L2 从 Redis 换成内嵌集群只是
@@ -40,7 +40,7 @@ SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH
 | Redis `RemoteStore`/`Invalidator` | 完成（miniredis 测试） |
 | Redis `Locker`：脚本路径 + 原生 `DELEX`/`SET IFEQ` 路径 | 完成；脚本路径有测试，8.4+ 原生路径已实现但测试套件未覆盖（miniredis 没有 `DELEX`） |
 | Olric `RemoteStore`（内嵌集群作为 L2） | 完成，已用真实节点验证（`-tags=integration`） |
-| 可选 key 枚举（`Scanner`） | Redis 完成；Olric 刻意不实现（见下文） |
+| 可选 key 枚举（`Scanner`） | Redis 与 Olric 都完成（Olric 是分页 DMap 遍历，见下文） |
 | 健康检查（`Health`、存储 `Ping`） | 仅 Redis 存储；`memory` 与 `olric` 未实现 `Ping`，对它们 `Health` 是空操作 |
 | 指标计数器 | 除 `Metrics.LoadWaiters`（声明了但从不递增）外完成 |
 
@@ -53,7 +53,7 @@ SCAN Scanner 端口（可选）                            （Redis：SCAN MATCH
   channel）。
 - **Redis 8.4+ 锁路径。** 已实现，通过探测 `COMMAND INFO delex` 选择，但没有针对具备
   `DELEX` 的服务器的测试。
-- **Olric 只是存储。** Olric 层没有 `Invalidator`、`Locker`、`Scanner`，也没有 `Ping`。
+- **Olric 只是存储。** Olric 层没有 `Invalidator`、`Locker`，也没有 `Ping`。
 - **基准测试与 v1.0 API 稳定化**仍未完成，见 [ROADMAP.zh-CN.md](ROADMAP.zh-CN.md)。
 
 ## 扫描共享层
@@ -78,8 +78,11 @@ if !ok {
 
 `redis.Store` 用 `SCAN` + `MATCH <prefix>*` + `COUNT`（每轮 512 个 key）实现。回调按实现
 未承诺的顺序对每个匹配 key 调用一次；回调的错误会停止扫描并原样返回；Redis 故障报告为
-`ErrUnavailable`，绝不伪装成空 key 列表。`olric.Store` 刻意不实现：Olric 的遍历会走遍集群
-每个分区并用正则匹配每个 key，不是廉价的前缀查询，伪装成廉价查询等于隐藏这份开销。见
+`ErrUnavailable`，绝不伪装成空 key 列表。
+
+`olric.Store` 也实现它，走的是分页的 DMap 遍历（同样用 `Count` 把一轮限制在 512 个 key）。
+代价比 Redis 高，值得知道：Olric 没有前缀索引，遍历要走遍集群每个分区并用正则过滤每个 key。
+这属于启动或运维操作——正是"载入上一个进程写下的状态"需要的——不该出现在请求路径上。见
 [scanner.go](scanner.go)。
 
 ## 不用 Lua 的加锁
